@@ -10,6 +10,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# action-gh-release needs write access to create the Release and upload binaries.
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
