@@ -21,14 +21,14 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: ColdCallLeadFinder-macos
-            bin: dist/ColdCallLeadFinder
+            asset: ColdCallLeadFinder-macos
+            built: dist/ColdCallLeadFinder
           - os: windows-latest
-            artifact: ColdCallLeadFinder-windows
-            bin: dist/ColdCallLeadFinder.exe
+            asset: ColdCallLeadFinder-windows.exe
+            built: dist/ColdCallLeadFinder.exe
           - os: ubuntu-latest
-            artifact: ColdCallLeadFinder-linux
-            bin: dist/ColdCallLeadFinder
+            asset: ColdCallLeadFinder-linux
+            built: dist/ColdCallLeadFinder
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -45,14 +45,18 @@ jobs:
       - name: Build
         run: pyinstaller --onefile --windowed --name ColdCallLeadFinder app.py
 
+      - name: Rename to OS-specific filename
+        shell: bash
+        run: mv "${{ matrix.built }}" "dist/${{ matrix.asset }}"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.bin }}
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.bin }}
+          files: dist/${{ matrix.asset }}
