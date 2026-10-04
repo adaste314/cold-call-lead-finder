@@ -14,12 +14,15 @@ Python install required.
 
 | OS | File | How to run |
 |----|------|-----------|
-| **macOS** | `ColdCallLeadFinder` (or `.app`) | Double-click. First launch: right-click → **Open** to get past Gatekeeper. |
-| **Windows** | `ColdCallLeadFinder.exe` | Double-click. SmartScreen → **More info → Run anyway**. |
-| **Linux** | `ColdCallLeadFinder` | `chmod +x ColdCallLeadFinder && ./ColdCallLeadFinder` |
+| **macOS** | `ColdCallLeadFinder-macos.zip` | Unzip, double-click the app. First launch is blocked — open **System Settings → Privacy & Security**, scroll down, click **Open Anyway**, then open it again. |
+| **Windows** | `ColdCallLeadFinder-windows.exe` | Double-click. SmartScreen → **More info → Run anyway**. |
+| **Linux** | `ColdCallLeadFinder-linux` | `chmod +x ColdCallLeadFinder-linux && ./ColdCallLeadFinder-linux` |
 
 The binaries are unsigned (no paid code-signing cert), which is why the OS shows a
-first-run warning — that's expected for indie tools.
+first-run warning — that's expected for indie tools, not an actual malware detection.
+
+> **macOS one-liner alternative:** instead of the Settings click, clear the download
+> flag in Terminal: `xattr -dr com.apple.quarantine ~/Downloads/ColdCallLeadFinder.app`
 
 ## Using it
 
