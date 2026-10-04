@@ -7,8 +7,6 @@ you cold call them. Built for web-design / web-dev outreach.
 No sign-up, no API keys, nothing to configure. Detect your location (or type a
 city), pick a radius, and get a ranked, sortable list with the issues spelled out.
 
-![screenshot placeholder](docs/screenshot.png)
-
 ## Download & run
 
 Grab the executable for your OS from the [**Releases**](../../releases) page — no
