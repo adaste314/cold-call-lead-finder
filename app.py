@@ -101,8 +101,16 @@ class App(tk.Tk):
         split.add(table_frame, weight=3)
 
         detail_frame = ttk.Frame(split)
-        self.detail = tk.Text(detail_frame, height=9, wrap="word", font=("Menlo", 12),
-                              state="disabled", background="#fbfbfd")
+        # match the detail pane's background to the business list
+        style = ttk.Style(self)
+        list_bg = (style.lookup("Treeview", "fieldbackground")
+                   or style.lookup("Treeview", "background") or "white")
+        self.detail = tk.Text(detail_frame, height=10, wrap="word", font=("Menlo", 12),
+                              state="disabled", padx=10, pady=8)
+        try:
+            self.detail.configure(background=list_bg)
+        except tk.TclError:
+            self.detail.configure(background="white")
         self.detail.pack(fill="both", expand=True)
         split.add(detail_frame, weight=1)
 
@@ -224,19 +232,24 @@ class App(tk.Tk):
         sel = self.tree.selection()
         if not sel:
             return
-        b = self.leads[int(sel[0])]
-        lines = [b["name"]]
-        meta = f'{b["category"].title()}'
+        idx = int(sel[0])
+        b = self.leads[idx]
+        no_web = not b["website"]
+        tag = "NO WEBSITE" if no_web else "BAD WEBSITE"
+
+        # Mirror the HTML report card: rank, name, tag, score, then details.
+        lines = [f'#{idx + 1}   {b["name"]}   [{tag}]   score {b["score"]}']
+        meta = b["category"].title()
         if b["address"]:
             meta += f'  |  {b["address"]}'
         lines.append(meta)
-        lines.append(f'Phone: {b["phone"] or "NOT LISTED - look it up before calling"}')
-        if b["website"]:
-            lines.append(f'Website: {b["website"]}')
+        lines.append(f'Phone:   {b["phone"] or "not listed - look it up before calling"}')
+        lines.append(f'Website: {b["website"] or "none"}')
         lines.append("")
         lines.append("Talking points:")
         for p in b["points"]:
-            lines.append(f"  - {p}")
+            lines.append(f"  • {p}")
+
         self.detail.config(state="normal")
         self.detail.delete("1.0", "end")
         self.detail.insert("1.0", "\n".join(lines))
