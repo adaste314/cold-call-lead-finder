@@ -1,0 +1,54 @@
+name: Build executables
+
+# Builds standalone binaries for macOS, Windows, and Linux.
+# - On every push: build and upload artifacts you can download from the run.
+# - On a tag like v1.0.0: also attach the binaries to a GitHub Release.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: ColdCallLeadFinder-macos
+            bin: dist/ColdCallLeadFinder
+          - os: windows-latest
+            artifact: ColdCallLeadFinder-windows
+            bin: dist/ColdCallLeadFinder.exe
+          - os: ubuntu-latest
+            artifact: ColdCallLeadFinder-linux
+            bin: dist/ColdCallLeadFinder
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: pyinstaller --onefile --windowed --name ColdCallLeadFinder app.py
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bin }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.bin }}

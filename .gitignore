@@ -1,0 +1,15 @@
+# Build output
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# Generated reports
+cold_call_leads.csv
+cold_call_leads.html
+
+# Env
+.venv/
+venv/
+.DS_Store
