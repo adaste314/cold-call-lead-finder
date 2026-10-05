@@ -82,12 +82,12 @@ class App(tk.Tk):
         split.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
         table_frame = ttk.Frame(split)
-        cols = ("rank", "name", "type", "phone", "status", "issues", "score")
+        cols = ("rank", "name", "type", "phone", "status", "issues", "quote", "score")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", selectmode="browse")
         headings = {"rank": "#", "name": "Business", "type": "Type", "phone": "Phone",
-                    "status": "Website", "issues": "Issues", "score": "Score"}
-        widths = {"rank": 40, "name": 260, "type": 120, "phone": 140,
-                  "status": 110, "issues": 60, "score": 60}
+                    "status": "Website", "issues": "Issues", "quote": "Quote", "score": "Score"}
+        widths = {"rank": 40, "name": 240, "type": 110, "phone": 135,
+                  "status": 105, "issues": 55, "quote": 65, "score": 55}
         for c in cols:
             self.tree.heading(c, text=headings[c], command=lambda c=c: self._sort_by(c))
             self.tree.column(c, width=widths[c], anchor="w" if c in ("name", "type", "phone") else "center")
@@ -105,14 +105,28 @@ class App(tk.Tk):
         style = ttk.Style(self)
         list_bg = (style.lookup("Treeview", "fieldbackground")
                    or style.lookup("Treeview", "background") or "white")
-        self.detail = tk.Text(detail_frame, height=10, wrap="word", font=("Menlo", 12),
-                              state="disabled", padx=10, pady=8)
+        self.detail = tk.Text(detail_frame, height=14, wrap="word", font=("Menlo", 12),
+                              state="disabled", padx=12, pady=10, borderwidth=0)
         try:
             self.detail.configure(background=list_bg)
         except tk.TclError:
+            list_bg = "white"
             self.detail.configure(background="white")
-        self.detail.pack(fill="both", expand=True)
-        split.add(detail_frame, weight=1)
+        dsb = ttk.Scrollbar(detail_frame, orient="vertical", command=self.detail.yview)
+        self.detail.configure(yscrollcommand=dsb.set)
+        dsb.pack(side="right", fill="y")
+        self.detail.pack(side="left", fill="both", expand=True)
+        # text styling for the detail pane
+        self.detail.tag_configure("title", font=("Menlo", 13, "bold"), spacing3=4)
+        self.detail.tag_configure("sub", foreground="#555555", spacing3=6)
+        self.detail.tag_configure("h", font=("Menlo", 11, "bold"), spacing1=8, spacing3=2)
+        self.detail.tag_configure("s", foreground="#1e8e4e", font=("Menlo", 11, "bold"), spacing1=8, spacing3=2)
+        self.detail.tag_configure("w", foreground="#c0392b", font=("Menlo", 11, "bold"), spacing1=8, spacing3=2)
+        self.detail.tag_configure("o", foreground="#2d6fd6", font=("Menlo", 11, "bold"), spacing1=8, spacing3=2)
+        self.detail.tag_configure("t", foreground="#b9770e", font=("Menlo", 11, "bold"), spacing1=8, spacing3=2)
+        self.detail.tag_configure("rec", font=("Menlo", 12, "bold"), foreground="#1e8e4e", spacing1=6)
+        self.detail.tag_configure("tier", foreground="#333333")
+        split.add(detail_frame, weight=2)
 
         self._sort_state = {}
 
@@ -226,7 +240,10 @@ class App(tk.Tk):
             phone = b["phone"] or "— look up —"
             self.tree.insert("", "end", iid=str(i - 1), tags=(tag,), values=(
                 i, b["name"], b["category"].title(), phone, status,
-                len(b["points"]), b["score"]))
+                len(b["weaknesses"]), f'${b["recommended"][0]}', b["score"]))
+
+    def _insert(self, text, tag=None):
+        self.detail.insert("end", text, tag) if tag else self.detail.insert("end", text)
 
     def on_select(self, _):
         sel = self.tree.selection()
@@ -234,35 +251,57 @@ class App(tk.Tk):
             return
         idx = int(sel[0])
         b = self.leads[idx]
-        no_web = not b["website"]
-        tag = "NO WEBSITE" if no_web else "BAD WEBSITE"
-
-        # Mirror the HTML report card: rank, name, tag, score, then details.
-        lines = [f'#{idx + 1}   {b["name"]}   [{tag}]   score {b["score"]}']
-        meta = b["category"].title()
-        if b["address"]:
-            meta += f'  |  {b["address"]}'
-        lines.append(meta)
-        lines.append(f'Phone:   {b["phone"] or "not listed - look it up before calling"}')
-        lines.append(f'Website: {b["website"] or "none"}')
-        lines.append("")
-        lines.append("Talking points:")
-        for p in b["points"]:
-            lines.append(f"  • {p}")
+        tag = "NO WEBSITE" if not b["website"] else "BAD WEBSITE"
+        sw = b["swot"]
 
         self.detail.config(state="normal")
         self.detail.delete("1.0", "end")
-        self.detail.insert("1.0", "\n".join(lines))
+
+        # Header, mirroring the HTML card
+        self._insert(f'#{idx + 1}  {b["name"]}   [{tag}]   score {b["score"]}\n', "title")
+        meta = b["category"].title()
+        if b["address"]:
+            meta += f'  |  {b["address"]}'
+        self._insert(meta + "\n", "sub")
+        self._insert(f'Phone:   {b["phone"] or "not listed - look it up before calling"}\n', "sub")
+        self._insert(f'Website: {b["website"] or "none"}\n', "sub")
+
+        # SWOT
+        for label, key, t in (("STRENGTHS", "strengths", "s"),
+                              ("WEAKNESSES", "weaknesses", "w"),
+                              ("OPPORTUNITIES", "opportunities", "o"),
+                              ("THREATS", "threats", "t")):
+            self._insert(label + "\n", t)
+            for x in sw[key]:
+                self._insert(f"  • {x}\n", "tier")
+
+        # Talking points
+        self._insert("TALKING POINTS\n", "h")
+        for p in b["points"]:
+            self._insert(f"  • {p}\n", "tier")
+
+        # Pricing
+        self._insert("SUGGESTED PRICING\n", "h")
+        rec_amount, rec_reason = b["recommended"]
+        for amt, tname, tdesc in b["price_tiers"]:
+            star = "  ← recommended" if amt == rec_amount else ""
+            self._insert(f"  ${amt}  {tname}{star}\n", "rec" if amt == rec_amount else "tier")
+            self._insert(f"        {tdesc}\n", "tier")
+        self._insert(f"→ Pitch ${rec_amount}: {rec_reason}\n", "rec")
+
         self.detail.config(state="disabled")
+        self.detail.yview_moveto(0)
 
     def _sort_by(self, col):
         reverse = self._sort_state.get(col, False)
-        idx = {"rank": 0, "name": 1, "type": 2, "phone": 3, "status": 4, "issues": 5, "score": 6}[col]
-        numeric = col in ("rank", "issues", "score")
         rows = [(self.tree.set(k, col), k) for k in self.tree.get_children("")]
 
         def key(v):
-            return float(v[0]) if numeric and v[0].replace(".", "").isdigit() else v[0].lower()
+            raw = v[0].lstrip("$")
+            try:
+                return (0, float(raw))
+            except ValueError:
+                return (1, v[0].lower())
 
         rows.sort(key=key, reverse=reverse)
         for pos, (_, k) in enumerate(rows):

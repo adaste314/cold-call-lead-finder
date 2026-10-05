@@ -29,12 +29,27 @@ first-run warning — that's expected for indie tools, not an actual malware det
 1. Leave **Location** blank to use your current location, or type a city/address.
 2. Set the **radius** in meters (2000 = ~1.25 miles).
 3. Click **Find Leads**. Red rows = no website, amber = website with problems.
-4. Click any row to see its phone number and talking points.
+4. Click any row for a full breakdown: a **SWOT analysis**, detailed **talking
+   points**, and a **suggested price** for that specific business.
 5. **Export CSV** for your CRM, or **Open HTML report** for a shareable page with
-   tap-to-call links.
+   tap-to-call links. Both carry the SWOT, talking points, and pricing.
 
 Leads are ranked by opportunity: no website at all scores highest, then dead/broken
 sites, then sites with fixable problems.
+
+## Pricing model
+
+Each lead gets a recommended tier based on its business type:
+
+| Price | Tier | What it covers |
+|-------|------|----------------|
+| **$400** | Simple custom site | One custom page with animations, click-to-call, redirect/social links |
+| **$600** | Multi-page + SEO | Several pages plus SEO so they rank for local searches |
+| **$800** | Advanced build | The above plus online ordering, booking, or payments |
+
+Restaurants/cafes/bars are pitched at **$800** (online ordering / digital menu);
+appointment businesses (salons, dentists, vets, etc.) at **$800** (online booking);
+everything else defaults to **$600** (multi-page + SEO).
 
 ## What counts as a "bad website"
 

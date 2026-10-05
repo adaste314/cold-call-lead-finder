@@ -35,9 +35,21 @@ def print_console(leads, limit, location_label):
         print(f"   Phone: {b['phone'] or 'NOT LISTED - look it up before calling'}")
         if b["website"]:
             print(f"   Site:  {b['website']}")
+        sw = b["swot"]
+        for label, key in (("Strengths", "strengths"), ("Weaknesses", "weaknesses"),
+                           ("Opportunities", "opportunities"), ("Threats", "threats")):
+            print(f"   {label}:")
+            for x in sw[key]:
+                print(f"     - {x}")
         print("   Talking points:")
         for p in b["points"]:
             print(f"     - {p}")
+        amount, reason = b["recommended"]
+        print("   Suggested pricing:")
+        for amt, tname, tdesc in b["price_tiers"]:
+            star = "  <-- recommended" if amt == amount else ""
+            print(f"     ${amt}  {tname}{star}")
+        print(f"   -> Pitch ${amount}: {reason}")
     print()
 
 
