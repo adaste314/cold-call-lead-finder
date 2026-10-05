@@ -25,6 +25,8 @@ UA = "cold-call-lead-finder/1.0 (local outreach tool)"
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
 
 # ----------------------------------------------------------------------------
@@ -78,7 +80,7 @@ def fetch_businesses(lat, lon, radius):
                "car_wash|driving_school|childcare")
     tourism = "hotel|motel|guest_house|hostel|bed_and_breakfast"
     q = f"""
-    [out:json][timeout:60];
+    [out:json][timeout:50];
     (
       nwr["shop"]["name"](around:{radius},{lat},{lon});
       nwr["craft"]["name"](around:{radius},{lat},{lon});
@@ -89,17 +91,25 @@ def fetch_businesses(lat, lon, radius):
     );
     out center tags;
     """
+    # The free Overpass mirrors get overloaded and time out. A healthy query
+    # returns in a few seconds, so fail fast per mirror and rotate quickly
+    # rather than hanging; do two full passes with a short backoff.
     last_err = None
-    for endpoint in OVERPASS_ENDPOINTS:
-        try:
-            r = requests.post(endpoint, data={"data": q},
-                              headers={"User-Agent": UA}, timeout=90)
-            r.raise_for_status()
-            return r.json().get("elements", [])
-        except Exception as e:
-            last_err = e
-            continue
-    raise RuntimeError(f"Overpass API failed on all endpoints: {last_err}")
+    for attempt in range(2):
+        for endpoint in OVERPASS_ENDPOINTS:
+            try:
+                r = requests.post(endpoint, data={"data": q},
+                                  headers={"User-Agent": UA}, timeout=(8, 35))
+                r.raise_for_status()
+                return r.json().get("elements", [])
+            except Exception as e:
+                last_err = e
+                continue
+        if attempt == 0:
+            time.sleep(3)
+    hint = " Try again in a few seconds" + (", or use a smaller radius." if radius > 3000 else ".")
+    raise RuntimeError("OpenStreetMap's data servers are busy or unreachable right now."
+                       + hint)
 
 
 def normalize(elements):
