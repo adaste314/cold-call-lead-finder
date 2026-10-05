@@ -25,9 +25,17 @@ import core
 
 
 def resource_dir():
-    """Where to drop exported files - next to the executable, or cwd."""
+    """A writable, user-visible directory for exported reports.
+
+    Running from source we use the current directory. In a packaged app we must
+    NOT write next to the executable: on macOS an unsigned app is often launched
+    from a read-only "translocation" path, and a .app's binary lives inside the
+    bundle. Prefer the user's Desktop, then home.
+    """
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        home = os.path.expanduser("~")
+        desktop = os.path.join(home, "Desktop")
+        return desktop if os.path.isdir(desktop) else home
     return os.getcwd()
 
 
@@ -310,19 +318,36 @@ class App(tk.Tk):
         self._sort_state[col] = not reverse
 
     def on_csv(self):
+        if not self.leads:
+            return
         path = filedialog.asksaveasfilename(
             initialdir=resource_dir(), defaultextension=".csv",
             initialfile="cold_call_leads.csv",
             filetypes=[("CSV", "*.csv")])
-        if path:
+        if not path:
+            return
+        try:
             core.write_csv(self.leads, path)
             self._set_status(f"Saved CSV: {path}")
+        except Exception as e:
+            messagebox.showerror("Could not save CSV", str(e))
 
     def on_html(self):
-        path = os.path.join(resource_dir(), "cold_call_leads.html")
-        core.write_html(self.leads, path, self.location_label, self.radius_mi)
-        webbrowser.open("file://" + os.path.abspath(path))
-        self._set_status(f"Opened HTML report: {path}")
+        if not self.leads:
+            return
+        try:
+            path = os.path.join(resource_dir(), "cold_call_leads.html")
+            core.write_html(self.leads, path, self.location_label, self.radius_mi)
+            opened = webbrowser.open("file://" + os.path.abspath(path))
+            if opened:
+                self._set_status(f"Opened HTML report: {path}")
+            else:
+                # No browser could be launched - at least tell the user where it is.
+                self._set_status(f"Report saved (open it manually): {path}")
+                messagebox.showinfo("Report saved",
+                                    f"Couldn't auto-open a browser.\nThe report is here:\n\n{path}")
+        except Exception as e:
+            messagebox.showerror("Could not open report", str(e))
 
     def _set_status(self, text):
         self.status.config(text=text)
