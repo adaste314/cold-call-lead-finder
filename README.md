@@ -27,7 +27,7 @@ first-run warning — that's expected for indie tools, not an actual malware det
 ## Using it
 
 1. Leave **Location** blank to use your current location, or type a city/address.
-2. Set the **radius** in meters (2000 = ~1.25 miles).
+2. Set the **radius** in miles (default 1.5).
 3. Click **Find Leads**. Red rows = no website, amber = website with problems.
 4. Click any row for a full breakdown: a **SWOT analysis**, detailed **talking
    points**, and a **suggested price** for that specific business.

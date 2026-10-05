@@ -6,9 +6,9 @@ Finds local businesses near you that have NO website or a BAD website, and hands
 you the specific problems to use as talking points. For the desktop app, run app.py.
 
 Usage:
-    python leads.py                      # use your IP location, 2km radius
+    python leads.py                      # use your IP location, 1.5 mi radius
     python leads.py --address "Austin, TX"
-    python leads.py --radius 3000 --limit 40
+    python leads.py --radius 2 --limit 40
     python leads.py --lat 30.26 --lon -97.74
     python leads.py --no-open            # don't auto-open the HTML report
 """
@@ -58,7 +58,7 @@ def main():
     ap.add_argument("--address", help="Address/city to search around (else uses your IP location)")
     ap.add_argument("--lat", type=float, help="Latitude (overrides address/IP)")
     ap.add_argument("--lon", type=float, help="Longitude (overrides address/IP)")
-    ap.add_argument("--radius", type=int, default=2000, help="Search radius in meters (default 2000)")
+    ap.add_argument("--radius", type=float, default=1.5, help="Search radius in miles (default 1.5)")
     ap.add_argument("--limit", type=int, default=30, help="Max leads to print (default 30)")
     ap.add_argument("--out", default=None, help="Output basename (default cold_call_leads)")
     ap.add_argument("--no-open", action="store_true", help="Do not auto-open the HTML report")
@@ -73,12 +73,13 @@ def main():
         if not loc:
             raise SystemExit("Could not auto-detect location. Pass --address or --lat/--lon.")
         lat, lon, label = loc
-    print(f"Location: {label}  ({lat:.4f}, {lon:.4f})  radius {args.radius}m", file=sys.stderr)
+    meters = int(round(args.radius * 1609.34))
+    print(f"Location: {label}  ({lat:.4f}, {lon:.4f})  radius {args.radius} mi", file=sys.stderr)
 
     def prog(done, total):
         print(f"\r  checking websites {done}/{total}", end="", file=sys.stderr)
 
-    leads, n = core.find_leads(lat, lon, args.radius, progress=prog)
+    leads, n = core.find_leads(lat, lon, meters, progress=prog)
     print(f"\n  {n} businesses found.", file=sys.stderr)
 
     base = args.out or "cold_call_leads"

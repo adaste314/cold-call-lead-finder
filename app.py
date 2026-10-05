@@ -40,7 +40,7 @@ class App(tk.Tk):
 
         self.leads = []
         self.location_label = ""
-        self.radius = 2000
+        self.radius_mi = 1.5
         self.q = queue.Queue()
 
         self._build_ui()
@@ -58,9 +58,9 @@ class App(tk.Tk):
         self.loc_entry.insert(0, "")
         self._placeholder(self.loc_entry, "blank = use my location")
 
-        ttk.Label(bar, text="Radius (m):").pack(side="left")
-        self.radius_entry = ttk.Entry(bar, width=7)
-        self.radius_entry.insert(0, "2000")
+        ttk.Label(bar, text="Radius (mi):").pack(side="left")
+        self.radius_entry = ttk.Entry(bar, width=6)
+        self.radius_entry.insert(0, "1.5")
         self.radius_entry.pack(side="left", padx=(4, 10))
 
         self.find_btn = ttk.Button(bar, text="Find Leads", command=self.on_find)
@@ -151,10 +151,11 @@ class App(tk.Tk):
     # -- actions -------------------------------------------------------------
     def on_find(self):
         try:
-            self.radius = max(100, int(self.radius_entry.get()))
+            self.radius_mi = max(0.1, float(self.radius_entry.get()))
         except ValueError:
-            messagebox.showerror("Invalid radius", "Radius must be a number of meters.")
+            messagebox.showerror("Invalid radius", "Radius must be a number of miles.")
             return
+        meters = int(round(self.radius_mi * 1609.34))
         loc = self.loc_entry.get().strip()
         if loc == getattr(self.loc_entry, "_placeholder", None):
             loc = ""
@@ -165,7 +166,7 @@ class App(tk.Tk):
         self._set_status("Finding your location...")
         self.progress.config(mode="indeterminate")
         self.progress.start(12)
-        threading.Thread(target=self._worker, args=(loc, self.radius), daemon=True).start()
+        threading.Thread(target=self._worker, args=(loc, meters), daemon=True).start()
 
     def _worker(self, loc, radius):
         try:
@@ -319,7 +320,7 @@ class App(tk.Tk):
 
     def on_html(self):
         path = os.path.join(resource_dir(), "cold_call_leads.html")
-        core.write_html(self.leads, path, self.location_label, self.radius)
+        core.write_html(self.leads, path, self.location_label, self.radius_mi)
         webbrowser.open("file://" + os.path.abspath(path))
         self._set_status(f"Opened HTML report: {path}")
 

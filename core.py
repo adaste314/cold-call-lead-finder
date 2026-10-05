@@ -483,7 +483,7 @@ def write_csv(leads, path):
                         " | ".join(b["points"])])
 
 
-def write_html(leads, path, location_label, radius):
+def write_html(leads, path, location_label, radius_mi):
     now = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
     no_site = sum(1 for b in leads if not b["website"])
     bad_site = sum(1 for b in leads if b["website"])
@@ -618,7 +618,7 @@ def write_html(leads, path, location_label, radius):
 </style></head><body>
 <header>
   <h1>Cold-Call Leads &mdash; {html.escape(location_label)}</h1>
-  <div class="sub">Within {radius} m &middot; generated {now} &middot;
+  <div class="sub">Within {radius_mi} mi &middot; generated {now} &middot;
     sorted by opportunity. Each lead has a SWOT analysis, talking points, and a
     suggested price. Red = no website, amber = website with problems.</div>
   <div class="stats">
