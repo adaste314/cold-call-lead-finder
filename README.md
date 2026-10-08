@@ -37,6 +37,26 @@ first-run warning — that's expected for indie tools, not an actual malware det
 Leads are ranked by opportunity: no website at all scores highest, then dead/broken
 sites, then sites with fixable problems.
 
+## Tracking who you've called
+
+Tick the **Called?** box on a row once you've phoned a business. It's hidden from the
+leads list and saved permanently, so it won't reappear in future searches either.
+
+- **Called (N)** button — opens the list of businesses you've marked called. Select
+  any and **Restore to leads** to bring them back, or **Clear all** to wipe the list.
+- **Export list… / Import list…** (inside the Called window) — the called list is a
+  JSON file (`~/.cold_call_lead_finder/called.json`). Export yours to share it;
+  import a teammate's file to merge their called businesses into yours (so two people
+  working the same area don't call the same places twice).
+
+## Updating
+
+The **Update** button pulls the latest version:
+
+- Running from the source checkout → it runs `git pull` and offers to restart.
+- Running the downloaded app → it checks GitHub Releases and, if a newer version
+  exists, opens the download page.
+
 ## Pricing model
 
 Each lead gets a recommended tier based on its business type:
