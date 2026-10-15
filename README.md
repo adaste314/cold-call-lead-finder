@@ -44,10 +44,17 @@ leads list and saved permanently, so it won't reappear in future searches either
 
 - **Called (N)** button — opens the list of businesses you've marked called. Select
   any and **Restore to leads** to bring them back, or **Clear all** to wipe the list.
-- **Export list… / Import list…** (inside the Called window) — the called list is a
-  JSON file (`~/.cold_call_lead_finder/called.json`). Export yours to share it;
-  import a teammate's file to merge their called businesses into yours (so two people
-  working the same area don't call the same places twice).
+- **Download / Upload** (inside the Called window) — sync with a team-shared list
+  stored on GitHub (`shared/called.json` in this repo), so people working the same
+  area don't call the same places twice:
+  - **Download** merges the shared list into your local one. Works for anyone, no
+    setup.
+  - **Upload** merges your local list *into* the shared one (union — it only ever
+    adds, never clobbers someone else's entries). Writing to GitHub needs a token
+    with repo access, resolved in this order: `CCLF_GITHUB_TOKEN` env var →
+    `~/.cold_call_lead_finder/token.txt` → `gh auth token` (so if you've run
+    `gh auth login`, it just works). Your local list still lives at
+    `~/.cold_call_lead_finder/called.json`.
 
 ## Updating
 

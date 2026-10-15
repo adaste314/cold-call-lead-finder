@@ -82,6 +82,72 @@ def _vtuple(v):
     return tuple(int(p) for p in parts if p.isdigit())
 
 
+# --- GitHub-synced shared called list -------------------------------------
+# Stored in the repo at shared/called.json. Download reads it anonymously;
+# Upload merges your local list in and writes it back via the Contents API.
+SHARED_API = f"https://api.github.com/repos/{REPO}/contents/shared/called.json"
+TOKEN_FILE = "token.txt"
+
+
+def resolve_token():
+    """Find a GitHub token for uploading, without one ever being baked in.
+
+    Order: env var, a local token.txt, then `gh auth token` if gh is installed.
+    """
+    t = os.environ.get("CCLF_GITHUB_TOKEN")
+    if t and t.strip():
+        return t.strip()
+    p = os.path.join(data_dir(), TOKEN_FILE)
+    if os.path.isfile(p):
+        try:
+            s = open(p, encoding="utf-8").read().strip()
+            if s:
+                return s
+        except Exception:
+            pass
+    try:
+        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def fetch_shared(token=None):
+    """Return (data_dict, sha) for the shared list. ({}, None) if it doesn't exist."""
+    import base64
+    import requests
+    headers = {"User-Agent": UA, "Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    r = requests.get(SHARED_API, headers=headers, params={"ref": "main"}, timeout=20)
+    if r.status_code == 404:
+        return {}, None
+    r.raise_for_status()
+    j = r.json()
+    try:
+        content = base64.b64decode(j.get("content", "")).decode("utf-8") or "{}"
+        data = json.loads(content) or {}
+    except Exception:
+        data = {}
+    return data, j.get("sha")
+
+
+def push_shared(data, sha, token):
+    import base64
+    import requests
+    headers = {"User-Agent": UA, "Accept": "application/vnd.github+json",
+               "Authorization": f"Bearer {token}"}
+    body = {"message": "Update shared called list",
+            "content": base64.b64encode(json.dumps(data, indent=2).encode()).decode(),
+            "branch": "main"}
+    if sha:
+        body["sha"] = sha
+    r = requests.put(SHARED_API, headers=headers, json=body, timeout=25)
+    r.raise_for_status()
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -95,6 +161,7 @@ class App(tk.Tk):
         self.q = queue.Queue()
         self.called = load_called()
         self._row_biz = {}
+        self._called_refresh = None
 
         self._build_ui()
         self._update_called_btn()
@@ -273,6 +340,8 @@ class App(tk.Tk):
                     self._on_error(payload)
                 elif kind == "update":
                     self._on_update_result(*payload)
+                elif kind == "sync":
+                    self._on_sync_result(*payload)
         except queue.Empty:
             pass
         self.after(100, self._drain_queue)
@@ -416,12 +485,13 @@ class App(tk.Tk):
     def open_called(self):
         win = tk.Toplevel(self)
         win.title("Called businesses")
-        win.geometry("660x440")
+        win.geometry("660x460")
         win.transient(self)
 
-        info = ttk.Label(win, anchor="w", padding=(10, 8),
-                         text="Businesses you've called are hidden from the leads list. "
-                              "Restore any to bring them back.")
+        info = ttk.Label(win, anchor="w", padding=(10, 8), justify="left",
+                         text="Businesses you've called are hidden from the leads list.\n"
+                              "Download merges the team's shared list into yours; "
+                              "Upload adds your list to the shared one on GitHub.")
         info.pack(fill="x")
 
         frame = ttk.Frame(win)
@@ -459,45 +529,16 @@ class App(tk.Tk):
                 self._populate()
                 self._update_called_btn()
 
-        def export_list():
-            path = filedialog.asksaveasfilename(
-                initialdir=resource_dir(), defaultextension=".json",
-                initialfile="called_leads.json", filetypes=[("JSON", "*.json")])
-            if not path:
-                return
-            try:
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(self.called, f, indent=2)
-                self._set_status(f"Exported {len(self.called)} called businesses to {path}")
-            except Exception as e:
-                messagebox.showerror("Export failed", str(e))
-
-        def import_list():
-            path = filedialog.askopenfilename(
-                initialdir=resource_dir(), filetypes=[("JSON", "*.json"), ("All files", "*.*")])
-            if not path:
-                return
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception as e:
-                messagebox.showerror("Import failed", f"Couldn't read that file:\n{e}")
-                return
-            added = self._merge_called(data)
-            save_called(self.called)
-            refresh()
-            self._populate()
-            self._update_called_btn()
-            messagebox.showinfo("Imported",
-                                f"Added {added} new called businesses from the file.")
-
         btns = ttk.Frame(win)
         btns.pack(fill="x", padx=10, pady=8)
         ttk.Button(btns, text="Restore to leads", command=restore).pack(side="left")
         ttk.Button(btns, text="Clear all", command=clear_all).pack(side="left", padx=(6, 0))
-        ttk.Button(btns, text="Import list…", command=import_list).pack(side="right")
-        ttk.Button(btns, text="Export list…", command=export_list).pack(side="right", padx=(0, 6))
+        ttk.Button(btns, text="Upload", command=self.on_upload).pack(side="right")
+        ttk.Button(btns, text="Download", command=self.on_download).pack(side="right", padx=(0, 6))
 
+        # let background sync refresh this window while it's open
+        self._called_refresh = refresh
+        win.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "_called_refresh", None), win.destroy()))
         refresh()
 
     def _merge_called(self, data):
@@ -515,6 +556,65 @@ class App(tk.Tk):
                                   ("name", "category", "phone", "address", "city")}
                 added += 1
         return added
+
+    # -- shared sync (GitHub) ------------------------------------------------
+    def on_download(self):
+        self._set_status("Downloading the shared called list…")
+        threading.Thread(target=self._download_worker, daemon=True).start()
+
+    def _download_worker(self):
+        try:
+            remote, _ = fetch_shared(resolve_token())
+            added = self._merge_called(remote)
+            save_called(self.called)
+            self.q.put(("sync", ("downloaded", added)))
+        except Exception as e:
+            self.q.put(("sync", ("error", str(e))))
+
+    def on_upload(self):
+        token = resolve_token()
+        if not token:
+            messagebox.showwarning(
+                "GitHub sign-in needed to upload",
+                "Downloading works for everyone, but uploading writes to GitHub and "
+                "needs a token with repo access.\n\nSet one up once, any of:\n"
+                "  • install GitHub CLI and run 'gh auth login', or\n"
+                f"  • save the token in {os.path.join(data_dir(), TOKEN_FILE)}, or\n"
+                "  • set the CCLF_GITHUB_TOKEN environment variable.")
+            return
+        self._set_status("Uploading your called list to the shared list…")
+        threading.Thread(target=self._upload_worker, args=(token,), daemon=True).start()
+
+    def _upload_worker(self, token):
+        try:
+            remote, sha = fetch_shared(token)
+            before = len(remote)
+            for k, v in self.called.items():          # merge local into remote (union)
+                if k not in remote:
+                    remote[k] = v
+            added_remote = len(remote) - before
+            pulled = self._merge_called(remote)        # and bring any remote-only into local
+            save_called(self.called)
+            push_shared(remote, sha, token)
+            self.q.put(("sync", ("uploaded", (added_remote, pulled))))
+        except Exception as e:
+            self.q.put(("sync", ("error", str(e))))
+
+    def _on_sync_result(self, status, info):
+        if status == "error":
+            self._set_status("Sync failed.")
+            messagebox.showerror("Sync failed", info)
+            return
+        if self._called_refresh:
+            self._called_refresh()
+        self._populate()
+        self._update_called_btn()
+        if status == "downloaded":
+            self._set_status(f"Download complete - merged {info} new into your Called list.")
+        else:  # uploaded
+            added_remote, pulled = info
+            self._set_status(f"Upload complete - added {added_remote} to the shared list"
+                             + (f", pulled {pulled} new to yours." if pulled else "."))
 
     # -- update --------------------------------------------------------------
     def on_update(self):
