@@ -23,7 +23,9 @@ from tkinter import ttk, filedialog, messagebox
 
 import core
 
-VERSION = "1.0.6"
+# Fallback version. Release builds stamp the real tag here (see stamp_version.py),
+# and running from source derives it from the git tag - see current_version().
+VERSION = "1.0.8"
 REPO = "adaste314/cold-call-lead-finder"
 UA = "cold-call-lead-finder-app"
 
@@ -80,6 +82,22 @@ def lead_key(b):
 def _vtuple(v):
     parts = (v or "").lstrip("v").split(".")
     return tuple(int(p) for p in parts if p.isdigit())
+
+
+def current_version():
+    """This build's version. Frozen builds trust the stamped VERSION; from source
+    we read the actual git tag so the Update button never reports a stale number."""
+    if getattr(sys, "frozen", False):
+        return VERSION
+    try:
+        appdir = os.path.dirname(os.path.abspath(__file__))
+        r = subprocess.run(["git", "-C", appdir, "describe", "--tags", "--abbrev=0"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().lstrip("v")
+    except Exception:
+        pass
+    return VERSION
 
 
 # --- GitHub-synced shared called list -------------------------------------
@@ -633,7 +651,7 @@ class App(tk.Tk):
                 if p.returncode != 0:
                     self.q.put(("update", ("error", out or "git pull failed")))
                 elif "Already up to date" in out or "up-to-date" in out:
-                    self.q.put(("update", ("current", f"You're already on the latest version (v{VERSION}).")))
+                    self.q.put(("update", ("current", f"You're already on the latest version (v{current_version()}).")))
                 else:
                     self.q.put(("update", ("pulled", out)))
             else:
@@ -642,10 +660,10 @@ class App(tk.Tk):
                                  headers={"User-Agent": UA}, timeout=15)
                 r.raise_for_status()
                 latest = r.json().get("tag_name", "")
-                if latest and _vtuple(latest) > _vtuple(VERSION):
+                if latest and _vtuple(latest) > _vtuple(current_version()):
                     self.q.put(("update", ("newer", latest)))
                 else:
-                    self.q.put(("update", ("current", f"You're on the latest version (v{VERSION}).")))
+                    self.q.put(("update", ("current", f"You're on the latest version (v{current_version()}).")))
         except Exception as e:
             self.q.put(("update", ("error", str(e))))
 
@@ -665,7 +683,7 @@ class App(tk.Tk):
             self._set_status(f"New version {info} available - opening the download page.")
             messagebox.showinfo("Update available",
                                 f"A newer version ({info}) is available.\n"
-                                f"You have v{VERSION}.\n\nOpening the download page.")
+                                f"You have v{current_version()}.\n\nOpening the download page.")
         else:  # error
             self._set_status("Update check failed.")
             messagebox.showerror("Update failed", info)

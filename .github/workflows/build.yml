@@ -39,6 +39,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
+      - name: Stamp version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: python stamp_version.py "${GITHUB_REF_NAME}"
+
       - name: Build
         run: pyinstaller --onefile --windowed --name ColdCallLeadFinder app.py
 
