@@ -1,1 +1,9 @@
-{}
+{
+  "zzz-test|sync check": {
+    "name": "Sync Test",
+    "category": "restaurant",
+    "phone": "+1 000",
+    "address": "sync check",
+    "city": ""
+  }
+}
