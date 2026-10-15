@@ -888,6 +888,13 @@ class App(tk.Tk):
         """Start the freshly-installed app and quit this one."""
         try:
             if kind == "mac":
+                # final safety net: ensure the installed binary is executable
+                inner = os.path.join(target, "Contents", "MacOS", "ColdCallLeadFinder")
+                try:
+                    if os.path.exists(inner):
+                        os.chmod(inner, os.stat(inner).st_mode | 0o111)
+                except Exception:
+                    pass
                 subprocess.Popen(["open", "-n", target])   # -n: force a new instance
                 self.destroy()
                 sys.exit(0)
