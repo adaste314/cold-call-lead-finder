@@ -191,24 +191,34 @@ _CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CE
 
 
 def fix_ca_env():
-    """Repair TLS after a relaunch of a frozen onefile app.
+    """Repair TLS for a frozen onefile app, permanently.
 
-    A stale _MEI temp path can linger in the CA env vars and break HTTPS
-    ('Could not find a suitable TLS CA certificate bundle'). Drop any that point
-    to a missing file, then pin to this process's certifi bundle.
+    The CA bundle shipped inside the app lives in a transient _MEI temp dir that
+    changes every launch and is deleted on exit; a relaunched instance that
+    inherits a path into a dead _MEI dir fails with 'Could not find a suitable
+    TLS CA certificate bundle'. Copy the bundle to a STABLE location in the user's
+    home and pin all CA env vars there, so the path never goes stale.
     """
-    for var in _CA_ENV_VARS:
-        p = os.environ.get(var)
-        if p and not os.path.exists(p):
-            os.environ.pop(var, None)
+    stable = os.path.join(data_dir(), "cacert.pem")
     try:
         import certifi
-        ca = certifi.where()
-        if os.path.exists(ca):
-            os.environ["SSL_CERT_FILE"] = ca
-            os.environ["REQUESTS_CA_BUNDLE"] = ca
+        src = certifi.where()
+        if os.path.exists(src) and (not os.path.exists(stable)
+                                    or os.path.getsize(src) != os.path.getsize(stable)):
+            shutil.copyfile(src, stable)
     except Exception:
         pass
+    if os.path.exists(stable):
+        os.environ["SSL_CERT_FILE"] = stable
+        os.environ["REQUESTS_CA_BUNDLE"] = stable
+        os.environ["CURL_CA_BUNDLE"] = stable
+        os.environ.pop("SSL_CERT_DIR", None)
+    else:
+        # no bundle to pin - at least drop any stale paths so requests can fall back
+        for var in _CA_ENV_VARS:
+            p = os.environ.get(var)
+            if p and not os.path.exists(p):
+                os.environ.pop(var, None)
 
 
 def _clean_child_env():
