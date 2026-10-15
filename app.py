@@ -187,6 +187,39 @@ def push_shared(data, sha, token):
 
 
 # --- in-place self-update (packaged app) ----------------------------------
+_CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_DIR")
+
+
+def fix_ca_env():
+    """Repair TLS after a relaunch of a frozen onefile app.
+
+    A stale _MEI temp path can linger in the CA env vars and break HTTPS
+    ('Could not find a suitable TLS CA certificate bundle'). Drop any that point
+    to a missing file, then pin to this process's certifi bundle.
+    """
+    for var in _CA_ENV_VARS:
+        p = os.environ.get(var)
+        if p and not os.path.exists(p):
+            os.environ.pop(var, None)
+    try:
+        import certifi
+        ca = certifi.where()
+        if os.path.exists(ca):
+            os.environ["SSL_CERT_FILE"] = ca
+            os.environ["REQUESTS_CA_BUNDLE"] = ca
+    except Exception:
+        pass
+
+
+def _clean_child_env():
+    """Environment for a relaunched instance: without stale CA paths, so the new
+    process recomputes its own instead of inheriting a dead _MEI path."""
+    env = dict(os.environ)
+    for var in _CA_ENV_VARS:
+        env.pop(var, None)
+    return env
+
+
 def _asset_name():
     if sys.platform.startswith("win"):
         return "ColdCallLeadFinder-windows.exe"
@@ -813,6 +846,7 @@ class App(tk.Tk):
 
     def _update_worker(self):
         try:
+            fix_ca_env()
             appdir = os.path.dirname(os.path.abspath(__file__))
             git_dir = os.path.join(appdir, ".git")
             if not getattr(sys, "frozen", False) and os.path.isdir(git_dir):
@@ -895,14 +929,18 @@ class App(tk.Tk):
                         os.chmod(inner, os.stat(inner).st_mode | 0o111)
                 except Exception:
                     pass
-                subprocess.Popen(["open", "-n", target])   # -n: force a new instance
+                # relaunch with stale CA paths stripped so the new instance
+                # recomputes its own certifi bundle (avoids a dead _MEI path)
+                subprocess.Popen(["open", "-n", target], env=_clean_child_env())
                 self.destroy()
                 sys.exit(0)
             elif kind == "win":
-                subprocess.Popen([target], close_fds=True)
+                subprocess.Popen([target], close_fds=True, env=_clean_child_env())
                 self.destroy()
                 sys.exit(0)
             else:  # linux - replace this process image with the new binary
+                for var in _CA_ENV_VARS:
+                    os.environ.pop(var, None)
                 self.destroy()
                 os.execv(target, [target])
         except Exception:
@@ -952,6 +990,7 @@ class App(tk.Tk):
 
 
 def main():
+    fix_ca_env()
     App().mainloop()
 
 
