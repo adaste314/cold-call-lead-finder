@@ -79,8 +79,13 @@ def main():
     def prog(done, total):
         print(f"\r  checking websites {done}/{total}", end="", file=sys.stderr)
 
-    leads, n = core.find_leads(lat, lon, meters, progress=prog)
-    print(f"\n  {n} businesses found.", file=sys.stderr)
+    leads, n, cached_ts = core.find_leads(lat, lon, meters, progress=prog)
+    if cached_ts:
+        import time as _t
+        mins = int((_t.time() - cached_ts) / 60)
+        print(f"\n  [OFFLINE] Overpass was unreachable - showing cached data from ~{mins} min ago.",
+              file=sys.stderr)
+    print(f"  {n} businesses found.", file=sys.stderr)
 
     base = args.out or "cold_call_leads"
     outdir = os.path.dirname(os.path.abspath(sys.argv[0]))

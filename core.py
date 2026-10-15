@@ -10,7 +10,10 @@ Data sources (all free, no API key):
 """
 
 import csv
+import hashlib
 import html
+import json
+import os
 import re
 import socket
 import ssl
@@ -24,10 +27,38 @@ import requests
 UA = "cold-call-lead-finder/1.0 (local outreach tool)"
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
+
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cold_call_lead_finder", "overpass_cache")
+
+
+def _cache_file(lat, lon, radius):
+    key = f"{round(lat, 3)}_{round(lon, 3)}_{radius}"
+    return os.path.join(CACHE_DIR, hashlib.md5(key.encode()).hexdigest()[:16] + ".json")
+
+
+def _cache_write(lat, lon, radius, elements):
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(_cache_file(lat, lon, radius), "w", encoding="utf-8") as f:
+            json.dump({"ts": time.time(), "elements": elements}, f)
+    except Exception:
+        pass
+
+
+def _cache_read(lat, lon, radius):
+    try:
+        with open(_cache_file(lat, lon, radius), encoding="utf-8") as f:
+            d = json.load(f)
+        elements = d.get("elements")
+        if elements:                      # ignore any empty/poisoned cache entry
+            return elements, d.get("ts")
+    except Exception:
+        pass
+    return None, None
 
 # ----------------------------------------------------------------------------
 # Location
@@ -94,22 +125,43 @@ def fetch_businesses(lat, lon, radius):
     # The free Overpass mirrors get overloaded and time out. A healthy query
     # returns in a few seconds, so fail fast per mirror and rotate quickly
     # rather than hanging; do two full passes with a short backoff.
+    # Some mirrors answer HTTP 200 with an empty element list (broken/overloaded).
+    # Treat that as a miss and keep trying; only accept and cache a non-empty result.
     last_err = None
+    saw_empty_ok = False
     for attempt in range(2):
         for endpoint in OVERPASS_ENDPOINTS:
             try:
                 r = requests.post(endpoint, data={"data": q},
                                   headers={"User-Agent": UA}, timeout=(8, 35))
                 r.raise_for_status()
-                return r.json().get("elements", [])
+                elements = r.json().get("elements", [])
+                if elements:
+                    _cache_write(lat, lon, radius, elements)   # copy for offline fallback
+                    return elements
+                saw_empty_ok = True
             except Exception as e:
                 last_err = e
                 continue
         if attempt == 0:
             time.sleep(3)
+    if saw_empty_ok:
+        return []   # a mirror genuinely reported no businesses here (don't cache empties)
     hint = " Try again in a few seconds" + (", or use a smaller radius." if radius > 3000 else ".")
     raise RuntimeError("OpenStreetMap's data servers are busy or unreachable right now."
                        + hint)
+
+
+def fetch_businesses_resilient(lat, lon, radius):
+    """fetch_businesses, but if every mirror fails, fall back to a cached result
+    for this area. Returns (elements, cached_ts) - cached_ts is None when fresh."""
+    try:
+        return fetch_businesses(lat, lon, radius), None
+    except Exception:
+        elements, ts = _cache_read(lat, lon, radius)
+        if elements:
+            return elements, ts
+        raise
 
 
 def normalize(elements):
@@ -465,10 +517,12 @@ def analyze_all(businesses, workers=12, progress=None):
 
 
 def find_leads(lat, lon, radius, progress=None):
-    """Full pipeline: discover businesses near (lat, lon) and rank leads."""
-    elements = fetch_businesses(lat, lon, radius)
+    """Full pipeline: discover businesses near (lat, lon) and rank leads.
+    Returns (leads, n_businesses, cached_ts); cached_ts is None unless the data
+    came from the offline cache because Overpass was unreachable."""
+    elements, cached_ts = fetch_businesses_resilient(lat, lon, radius)
     businesses = normalize(elements)
-    return analyze_all(businesses, progress=progress), len(businesses)
+    return analyze_all(businesses, progress=progress), len(businesses), cached_ts
 
 
 # ----------------------------------------------------------------------------

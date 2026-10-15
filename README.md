@@ -132,3 +132,9 @@ git tag v1.0.0 && git push origin v1.0.0
   being flagged, but OSM data can lag reality — glance at a lead before you claim a
   specific flaw on a call.
 - Overpass/Nominatim are free community servers; keep your volume reasonable.
+- The free Overpass mirrors are inconsistent (any given one may be down, slow, or
+  return an empty result). The app rotates across several mirrors, rejects bad
+  empty responses, and **caches each successful area lookup** to
+  `~/.cold_call_lead_finder/overpass_cache/`. If every mirror is unreachable, it
+  falls back to the most recent cached result for that area and flags it as offline
+  in the status bar, so you can keep working through an outage.

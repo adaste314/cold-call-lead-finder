@@ -88,6 +88,22 @@ def _vtuple(v):
     return tuple(int(p) for p in parts if p.isdigit())
 
 
+def _ago(ts):
+    try:
+        secs = max(0, int(__import__("time").time() - ts))
+    except Exception:
+        return "earlier"
+    if secs < 90:
+        return "just now"
+    mins = secs // 60
+    if mins < 90:
+        return f"{mins} min ago"
+    hrs = mins // 60
+    if hrs < 36:
+        return f"{hrs} hr ago"
+    return f"{hrs // 24} days ago"
+
+
 def current_version():
     """This build's version. Frozen builds trust the stamped VERSION; from source
     we read the actual git tag so the Update button never reports a stale number."""
@@ -433,7 +449,8 @@ class App(tk.Tk):
                     raise RuntimeError("Could not auto-detect your location. Type a city/address.")
                 lat, lon, label = res
             self.q.put(("status", f"Searching businesses near {label}..."))
-            businesses = core.normalize(core.fetch_businesses(lat, lon, radius))
+            elements, cached_ts = core.fetch_businesses_resilient(lat, lon, radius)
+            businesses = core.normalize(elements)
             if not businesses:
                 raise RuntimeError("No businesses found nearby. Try a larger radius.")
             self.q.put(("status", f"Checking {len(businesses)} businesses' websites..."))
@@ -443,7 +460,7 @@ class App(tk.Tk):
                 self.q.put(("progress", done))
 
             leads = core.analyze_all(businesses, progress=prog)
-            self.q.put(("done", (leads, label)))
+            self.q.put(("done", (leads, label, cached_ts)))
         except Exception as e:
             self.q.put(("error", str(e)))
 
@@ -470,7 +487,7 @@ class App(tk.Tk):
             pass
         self.after(100, self._drain_queue)
 
-    def _on_done(self, leads, label):
+    def _on_done(self, leads, label, cached_ts=None):
         self.progress.stop()
         self.progress.config(mode="determinate", value=0)
         for i, b in enumerate(leads, 1):
@@ -479,7 +496,10 @@ class App(tk.Tk):
         self.location_label = label
         no_site = sum(1 for b in leads if not b["website"])
         bad = len(leads) - no_site
-        self._set_status(f"{len(leads)} leads near {label}  -  {no_site} with no website, {bad} with a bad website.")
+        base = f"{len(leads)} leads near {label}  -  {no_site} with no website, {bad} with a bad website."
+        if cached_ts:
+            base += f"  [OFFLINE: Overpass was down - showing cached data from {_ago(cached_ts)}]"
+        self._set_status(base)
         self._populate()
         self.find_btn.config(state="normal")
         if leads:
