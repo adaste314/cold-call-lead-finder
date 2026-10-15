@@ -242,8 +242,11 @@ def cleanup_stale_update():
     """Remove any .old left behind by a previous self-update (best effort)."""
     try:
         exe = os.path.abspath(sys.executable)
-        for cand in (exe + ".old", (_app_bundle_path() or "") + ".old"):
-            if cand and os.path.lexists(cand):
+        candidates = [exe + ".old", (_app_bundle_path() or "") + ".old"]
+        if sys.platform == "darwin":
+            candidates.append((_find_real_mac_bundle() or "") + ".old")
+        for cand in candidates:
+            if cand and cand != ".old" and os.path.lexists(cand):
                 shutil.rmtree(cand, ignore_errors=True) if os.path.isdir(cand) \
                     else os.remove(cand)
     except Exception:
@@ -272,11 +275,29 @@ def perform_self_update(asset_url):
             raise RuntimeError("Couldn't find a writable installed copy of the app. "
                                "Move ColdCallLeadFinder.app to your Applications folder "
                                "in Finder, reopen it, then update.")
-        with zipfile.ZipFile(dl) as z:
-            z.extractall(tmpdir)
-        new_app = os.path.join(tmpdir, "ColdCallLeadFinder.app")
+        extracted = os.path.join(tmpdir, "extracted")
+        os.makedirs(extracted, exist_ok=True)
+        # Prefer ditto (preserves the executable bit); fall back to zipfile.
+        try:
+            r = subprocess.run(["ditto", "-x", "-k", dl, extracted],
+                               capture_output=True, timeout=120)
+            if r.returncode != 0:
+                raise RuntimeError("ditto failed")
+        except Exception:
+            with zipfile.ZipFile(dl) as z:
+                z.extractall(extracted)
+        new_app = os.path.join(extracted, "ColdCallLeadFinder.app")
         if not os.path.isdir(new_app):
             raise RuntimeError("The downloaded archive didn't contain the app.")
+        # zipfile drops Unix perms, so make sure the app's binaries are executable
+        macos = os.path.join(new_app, "Contents", "MacOS")
+        if os.path.isdir(macos):
+            for fn in os.listdir(macos):
+                fp = os.path.join(macos, fn)
+                try:
+                    os.chmod(fp, os.stat(fp).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                except Exception:
+                    pass
         backup = app + ".old"
         shutil.rmtree(backup, ignore_errors=True)
         os.rename(app, backup)
