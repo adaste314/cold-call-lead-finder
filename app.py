@@ -222,6 +222,22 @@ def _app_bundle_path():
     return None
 
 
+def _is_translocated():
+    """macOS runs unsigned, quarantined apps from a read-only random temp path."""
+    return "/AppTranslocation/" in os.path.abspath(sys.executable)
+
+
+def _find_real_mac_bundle():
+    """Locate the actual installed ColdCallLeadFinder.app (not a translocated copy)."""
+    home = os.path.expanduser("~")
+    for d in (os.path.join(home, "Downloads"), os.path.join(home, "Desktop"),
+              "/Applications", os.path.join(home, "Applications"), home):
+        p = os.path.join(d, "ColdCallLeadFinder.app")
+        if os.path.isdir(p) and os.access(os.path.dirname(p), os.W_OK):
+            return p
+    return None
+
+
 def cleanup_stale_update():
     """Remove any .old left behind by a previous self-update (best effort)."""
     try:
@@ -247,12 +263,15 @@ def perform_self_update(asset_url):
         raise RuntimeError("Downloaded file looks corrupt (too small).")
 
     if sys.platform == "darwin":
+        # When translocated, the running path is a read-only temp copy - update the
+        # real installed bundle instead (Downloads/Applications/etc.).
         app = _app_bundle_path()
+        if _is_translocated() or not app or not os.access(os.path.dirname(app), os.W_OK):
+            app = _find_real_mac_bundle()
         if not app or not os.path.isdir(app):
-            raise RuntimeError("Couldn't locate the .app bundle to replace.")
-        if not os.access(os.path.dirname(app), os.W_OK):
-            raise RuntimeError("The app's folder isn't writable (move it out of a "
-                               "read-only location, or it may be quarantined).")
+            raise RuntimeError("Couldn't find a writable installed copy of the app. "
+                               "Move ColdCallLeadFinder.app to your Applications folder "
+                               "in Finder, reopen it, then update.")
         with zipfile.ZipFile(dl) as z:
             z.extractall(tmpdir)
         new_app = os.path.join(tmpdir, "ColdCallLeadFinder.app")
@@ -262,6 +281,11 @@ def perform_self_update(asset_url):
         shutil.rmtree(backup, ignore_errors=True)
         os.rename(app, backup)
         shutil.move(new_app, app)
+        # strip quarantine so the updated app launches directly (no translocation)
+        try:
+            subprocess.run(["xattr", "-dr", "com.apple.quarantine", app], timeout=15)
+        except Exception:
+            pass
         return ("mac", app)
 
     if sys.platform.startswith("win"):
