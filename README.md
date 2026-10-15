@@ -103,8 +103,21 @@ everything else defaults to **$600** (multi-page + SEO).
 ## Where the data comes from (all free, no key)
 
 - **Location** — your IP, or a typed address geocoded via OpenStreetMap Nominatim
-- **Businesses** — OpenStreetMap Overpass API
+- **Businesses** — OpenStreetMap Overpass API (several mirrors, queried in parallel)
 - **Website issues** — the app fetches each site live and inspects it
+
+### Optional Geoapify fallback
+
+If the free Overpass mirrors are ever *all* down for an area you haven't cached, the
+app can fall back to [Geoapify's Places API](https://www.geoapify.com/) (also built
+on OpenStreetMap; free tier = 3,000 requests/day). It's used **only** as a last
+resort, and only if you supply your own key — nothing is bundled in the app.
+
+To enable it, get a free key at geoapify.com and do either:
+- set an environment variable: `CCLF_GEOAPIFY_KEY=your_key`, or
+- save the key in `~/.cold_call_lead_finder/geoapify_key.txt`
+
+With no key set, nothing changes — the app just uses Overpass + the offline cache.
 
 ## Run from source / build it yourself
 

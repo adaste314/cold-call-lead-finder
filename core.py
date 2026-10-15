@@ -32,7 +32,14 @@ OVERPASS_ENDPOINTS = [
     "https://overpass.private.coffee/api/interpreter",
 ]
 
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cold_call_lead_finder", "overpass_cache")
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".cold_call_lead_finder")
+CACHE_DIR = os.path.join(CONFIG_DIR, "overpass_cache")
+
+# Optional Geoapify fallback (built on OSM). Used only when Overpass is fully
+# down AND the user has supplied their own key - nothing is shipped in the app.
+GEOAPIFY_URL = "https://api.geoapify.com/v2/places"
+GEOAPIFY_CATEGORIES = ("commercial,catering,accommodation,healthcare,"
+                       "service,office,leisure,activity")
 
 
 def _cache_file(lat, lon, radius):
@@ -159,16 +166,81 @@ def fetch_businesses(lat, lon, radius):
                        + hint)
 
 
+def geoapify_key():
+    """A Geoapify API key from env or a local file, or None. Never shipped."""
+    k = os.environ.get("CCLF_GEOAPIFY_KEY")
+    if k and k.strip():
+        return k.strip()
+    try:
+        p = os.path.join(CONFIG_DIR, "geoapify_key.txt")
+        if os.path.isfile(p):
+            s = open(p, encoding="utf-8").read().strip()
+            if s:
+                return s
+    except Exception:
+        pass
+    return None
+
+
+def _geoapify_to_elements(features):
+    """Convert Geoapify GeoJSON features into Overpass-style elements so the rest
+    of the pipeline (normalize/analyze) works unchanged. Geoapify is OSM-based and
+    exposes the raw OSM tags under properties.datasource.raw."""
+    elements = []
+    for f in features or []:
+        props = f.get("properties", {}) or {}
+        raw = (props.get("datasource", {}) or {}).get("raw", {}) or {}
+        tags = dict(raw) if isinstance(raw, dict) else {}
+        if not tags.get("name") and props.get("name"):
+            tags["name"] = props["name"]
+        if not tags.get("name"):
+            continue
+        if not any(k in tags for k in ("website", "contact:website", "url", "contact:url")):
+            if props.get("website"):
+                tags["website"] = props["website"]
+        tags.setdefault("addr:street", props.get("street") or "")
+        tags.setdefault("addr:housenumber", props.get("housenumber") or "")
+        tags.setdefault("addr:city", props.get("city") or "")
+        elements.append({"tags": tags})
+    return elements
+
+
+def fetch_geoapify(lat, lon, radius):
+    """Query Geoapify Places as a fallback. Returns [] if no key is configured."""
+    key = geoapify_key()
+    if not key:
+        return []
+    params = {
+        "categories": GEOAPIFY_CATEGORIES,
+        "filter": f"circle:{lon},{lat},{radius}",
+        "limit": 500,
+        "apiKey": key,
+    }
+    r = requests.get(GEOAPIFY_URL, params=params, headers={"User-Agent": UA}, timeout=(8, 40))
+    r.raise_for_status()
+    return _geoapify_to_elements(r.json().get("features", []))
+
+
 def fetch_businesses_resilient(lat, lon, radius):
-    """fetch_businesses, but if every mirror fails, fall back to a cached result
-    for this area. Returns (elements, cached_ts) - cached_ts is None when fresh."""
+    """Discover businesses with graceful degradation. Returns (elements, cached_ts):
+    Overpass first; then Geoapify (if a key is set); then the offline cache.
+    cached_ts is None for fresh data, or the cache timestamp for a stale fallback."""
     try:
         return fetch_businesses(lat, lon, radius), None
     except Exception:
-        elements, ts = _cache_read(lat, lon, radius)
+        pass
+    try:
+        elements = fetch_geoapify(lat, lon, radius)   # [] if no key configured
         if elements:
-            return elements, ts
-        raise
+            _cache_write(lat, lon, radius, elements)
+            return elements, None
+    except Exception:
+        pass
+    elements, ts = _cache_read(lat, lon, radius)
+    if elements:
+        return elements, ts
+    raise RuntimeError("OpenStreetMap's data servers are unreachable and no cached "
+                       "or Geoapify data is available for this area. Try again shortly.")
 
 
 def normalize(elements):
