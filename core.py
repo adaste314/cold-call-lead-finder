@@ -125,26 +125,33 @@ def fetch_businesses(lat, lon, radius):
     # The free Overpass mirrors get overloaded and time out. A healthy query
     # returns in a few seconds, so fail fast per mirror and rotate quickly
     # rather than hanging; do two full passes with a short backoff.
-    # Some mirrors answer HTTP 200 with an empty element list (broken/overloaded).
-    # Treat that as a miss and keep trying; only accept and cache a non-empty result.
-    last_err = None
+    def hit(endpoint):
+        r = requests.post(endpoint, data={"data": q},
+                          headers={"User-Agent": UA}, timeout=(8, 40))
+        r.raise_for_status()
+        return r.json().get("elements", [])
+
+    # Race ALL mirrors at once and take the first healthy, non-empty response -
+    # you only need one working mirror, so a slow/down one never blocks you.
+    # (Some mirrors answer HTTP 200 with an empty list; treat that as a miss.)
     saw_empty_ok = False
     for attempt in range(2):
-        for endpoint in OVERPASS_ENDPOINTS:
-            try:
-                r = requests.post(endpoint, data={"data": q},
-                                  headers={"User-Agent": UA}, timeout=(8, 35))
-                r.raise_for_status()
-                elements = r.json().get("elements", [])
+        ex = ThreadPoolExecutor(max_workers=len(OVERPASS_ENDPOINTS))
+        futs = {ex.submit(hit, e): e for e in OVERPASS_ENDPOINTS}
+        try:
+            for fut in as_completed(futs):
+                try:
+                    elements = fut.result()
+                except Exception:
+                    continue
                 if elements:
                     _cache_write(lat, lon, radius, elements)   # copy for offline fallback
                     return elements
                 saw_empty_ok = True
-            except Exception as e:
-                last_err = e
-                continue
+        finally:
+            ex.shutdown(wait=False)   # don't wait on the slow losers
         if attempt == 0:
-            time.sleep(3)
+            time.sleep(2)
     if saw_empty_ok:
         return []   # a mirror genuinely reported no businesses here (don't cache empties)
     hint = " Try again in a few seconds" + (", or use a smaller radius." if radius > 3000 else ".")

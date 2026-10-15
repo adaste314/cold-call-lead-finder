@@ -133,8 +133,9 @@ git tag v1.0.0 && git push origin v1.0.0
   specific flaw on a call.
 - Overpass/Nominatim are free community servers; keep your volume reasonable.
 - The free Overpass mirrors are inconsistent (any given one may be down, slow, or
-  return an empty result). The app rotates across several mirrors, rejects bad
-  empty responses, and **caches each successful area lookup** to
+  return an empty result). The app **queries several mirrors in parallel and takes
+  the first healthy response** (so one slow/dead mirror never blocks you), rejects
+  bad empty responses, and **caches each successful area lookup** to
   `~/.cold_call_lead_finder/overpass_cache/`. If every mirror is unreachable, it
   falls back to the most recent cached result for that area and flags it as offline
   in the status bar, so you can keep working through an outage.
