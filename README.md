@@ -58,11 +58,18 @@ leads list and saved permanently, so it won't reappear in future searches either
 
 ## Updating
 
-The **Update** button pulls the latest version:
+The **Update** button pulls the latest version and applies it in place — no
+re-downloading or reinstalling:
 
 - Running from the source checkout → it runs `git pull` and offers to restart.
 - Running the downloaded app → it checks GitHub Releases and, if a newer version
-  exists, opens the download page.
+  exists, downloads the right binary for your OS, swaps it in over the installed
+  app, and restarts. (On macOS the whole `.app` is replaced; the old one is kept as
+  `.app.old` and cleaned up on next launch. If the in-place swap can't run — e.g. a
+  read-only location — it falls back to opening the download page.)
+
+In-place self-update ships from v1.0.9 onward, so an app from v1.0.8 or earlier
+still opens the download page the first time; every update after that is automatic.
 
 ## Pricing model
 

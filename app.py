@@ -13,10 +13,14 @@ Run from source with:  python app.py
 import json
 import os
 import queue
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
+import zipfile
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -166,6 +170,106 @@ def push_shared(data, sha, token):
     r.raise_for_status()
 
 
+# --- in-place self-update (packaged app) ----------------------------------
+def _asset_name():
+    if sys.platform.startswith("win"):
+        return "ColdCallLeadFinder-windows.exe"
+    if sys.platform == "darwin":
+        return "ColdCallLeadFinder-macos.zip"
+    return "ColdCallLeadFinder-linux"
+
+
+def latest_release():
+    import requests
+    r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest",
+                     headers={"User-Agent": UA}, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+
+def _download(url, dest):
+    import requests
+    with requests.get(url, headers={"User-Agent": UA}, timeout=180, stream=True) as r:
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(65536):
+                if chunk:
+                    f.write(chunk)
+
+
+def _app_bundle_path():
+    """The X.app directory enclosing the running macOS binary, or None."""
+    parts = os.path.abspath(sys.executable).split(os.sep)
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i].endswith(".app"):
+            return os.sep.join(parts[: i + 1])
+    return None
+
+
+def cleanup_stale_update():
+    """Remove any .old left behind by a previous self-update (best effort)."""
+    try:
+        exe = os.path.abspath(sys.executable)
+        for cand in (exe + ".old", (_app_bundle_path() or "") + ".old"):
+            if cand and os.path.lexists(cand):
+                shutil.rmtree(cand, ignore_errors=True) if os.path.isdir(cand) \
+                    else os.remove(cand)
+    except Exception:
+        pass
+
+
+def perform_self_update(asset_url):
+    """Download the release asset and swap it in for the running app.
+
+    Returns (kind, target_path) to relaunch, or raises on failure.
+    """
+    name = _asset_name()
+    tmpdir = tempfile.mkdtemp(prefix="cclf_update_")
+    dl = os.path.join(tmpdir, name)
+    _download(asset_url, dl)
+    if os.path.getsize(dl) < 1000:
+        raise RuntimeError("Downloaded file looks corrupt (too small).")
+
+    if sys.platform == "darwin":
+        app = _app_bundle_path()
+        if not app or not os.path.isdir(app):
+            raise RuntimeError("Couldn't locate the .app bundle to replace.")
+        if not os.access(os.path.dirname(app), os.W_OK):
+            raise RuntimeError("The app's folder isn't writable (move it out of a "
+                               "read-only location, or it may be quarantined).")
+        with zipfile.ZipFile(dl) as z:
+            z.extractall(tmpdir)
+        new_app = os.path.join(tmpdir, "ColdCallLeadFinder.app")
+        if not os.path.isdir(new_app):
+            raise RuntimeError("The downloaded archive didn't contain the app.")
+        backup = app + ".old"
+        shutil.rmtree(backup, ignore_errors=True)
+        os.rename(app, backup)
+        shutil.move(new_app, app)
+        return ("mac", app)
+
+    if sys.platform.startswith("win"):
+        exe = os.path.abspath(sys.executable)
+        old = exe + ".old"
+        try:
+            if os.path.exists(old):
+                os.remove(old)
+        except OSError:
+            pass
+        os.rename(exe, old)            # Windows allows renaming a running exe
+        shutil.move(dl, exe)
+        return ("win", exe)
+
+    # linux: atomically replace the binary; the running process keeps its inode
+    exe = os.path.abspath(sys.executable)
+    mode = os.stat(exe).st_mode
+    staged = exe + ".new"
+    shutil.move(dl, staged)
+    os.chmod(staged, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    os.replace(staged, exe)
+    return ("linux", exe)
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -180,6 +284,8 @@ class App(tk.Tk):
         self.called = load_called()
         self._row_biz = {}
         self._called_refresh = None
+        if getattr(sys, "frozen", False):
+            cleanup_stale_update()
 
         self._build_ui()
         self._update_called_btn()
@@ -655,13 +761,13 @@ class App(tk.Tk):
                 else:
                     self.q.put(("update", ("pulled", out)))
             else:
-                import requests
-                r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest",
-                                 headers={"User-Agent": UA}, timeout=15)
-                r.raise_for_status()
-                latest = r.json().get("tag_name", "")
+                rel = latest_release()
+                latest = rel.get("tag_name", "")
                 if latest and _vtuple(latest) > _vtuple(current_version()):
-                    self.q.put(("update", ("newer", latest)))
+                    name = _asset_name()
+                    url = next((a["browser_download_url"] for a in rel.get("assets", [])
+                                if a["name"] == name), None)
+                    self.q.put(("update", ("newer", (latest, url))))
                 else:
                     self.q.put(("update", ("current", f"You're on the latest version (v{current_version()}).")))
         except Exception as e:
@@ -678,15 +784,58 @@ class App(tk.Tk):
                                     f"Pulled the latest code:\n\n{info}\n\nRestart the app now?"):
                 self._restart()
         elif status == "newer":
-            url = f"https://github.com/{REPO}/releases/latest"
-            webbrowser.open(url)
-            self._set_status(f"New version {info} available - opening the download page.")
-            messagebox.showinfo("Update available",
-                                f"A newer version ({info}) is available.\n"
-                                f"You have v{current_version()}.\n\nOpening the download page.")
+            latest, url = info
+            if not url:
+                webbrowser.open(f"https://github.com/{REPO}/releases/latest")
+                return
+            if messagebox.askyesno(
+                    "Update available",
+                    f"A newer version ({latest}) is available (you have v{current_version()}).\n\n"
+                    "Download it and update this app in place, then restart?"):
+                self.update_btn.config(state="disabled")
+                self._set_status(f"Downloading {latest} and updating in place…")
+                threading.Thread(target=self._self_update_worker, args=(url,), daemon=True).start()
+        elif status == "updated":
+            kind, target, latest = info
+            self._set_status(f"Updated to {latest}. Restarting…")
+            messagebox.showinfo("Updated", f"Updated to {latest}. The app will now restart.")
+            self._relaunch(kind, target)
+        elif status == "update_failed":
+            msg, latest = info
+            self._set_status("In-place update failed.")
+            if messagebox.askyesno("Update failed",
+                                    f"Couldn't update in place:\n\n{msg}\n\n"
+                                    "Open the download page instead?"):
+                webbrowser.open(f"https://github.com/{REPO}/releases/latest")
         else:  # error
             self._set_status("Update check failed.")
             messagebox.showerror("Update failed", info)
+
+    def _self_update_worker(self, url):
+        try:
+            latest_tag = latest_release().get("tag_name", "")
+            kind, target = perform_self_update(url)
+            self.q.put(("update", ("updated", (kind, target, latest_tag))))
+        except Exception as e:
+            self.q.put(("update", ("update_failed", (str(e), ""))))
+
+    def _relaunch(self, kind, target):
+        """Start the freshly-installed app and quit this one."""
+        try:
+            if kind == "mac":
+                subprocess.Popen(["open", "-n", target])   # -n: force a new instance
+                self.destroy()
+                sys.exit(0)
+            elif kind == "win":
+                subprocess.Popen([target], close_fds=True)
+                self.destroy()
+                sys.exit(0)
+            else:  # linux - replace this process image with the new binary
+                self.destroy()
+                os.execv(target, [target])
+        except Exception:
+            self.destroy()
+            sys.exit(0)
 
     def _restart(self):
         self.destroy()
