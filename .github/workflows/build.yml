@@ -47,7 +47,7 @@ jobs:
       - name: Inject shared upload token
         shell: bash
         env:
-          SHARED_TOKEN: ${{ secrets.SHARED_TOKEN }}
+          SHARED_TOKEN: ${{ secrets.CCLF_UPLOAD }}
         run: python stamp_token.py
 
       - name: Build
