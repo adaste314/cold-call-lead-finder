@@ -10,6 +10,7 @@ This is the entry point bundled into the standalone executable.
 Run from source with:  python app.py
 """
 
+import base64
 import json
 import os
 import queue
@@ -32,6 +33,23 @@ import core
 VERSION = "1.0.8"
 REPO = "adaste314/cold-call-lead-finder"
 UA = "cold-call-lead-finder-app"
+
+# The team-shared called list lives in a SEPARATE data repo, so the embedded
+# upload token can only ever touch the list - never this app's code or releases.
+SHARED_REPO = "adaste314/cclf-shared"
+
+# A fine-grained token (scoped to SHARED_REPO, contents:write) is injected here at
+# build time by stamp_token.py, base64-encoded. Empty in source and in dev builds.
+SHARED_TOKEN_B64 = ""
+
+
+def _embedded_token():
+    if SHARED_TOKEN_B64:
+        try:
+            return base64.b64decode(SHARED_TOKEN_B64).decode().strip() or None
+        except Exception:
+            return None
+    return None
 
 
 def resource_dir():
@@ -123,14 +141,15 @@ def current_version():
 # --- GitHub-synced shared called list -------------------------------------
 # Stored in the repo at shared/called.json. Download reads it anonymously;
 # Upload merges your local list in and writes it back via the Contents API.
-SHARED_API = f"https://api.github.com/repos/{REPO}/contents/shared/called.json"
+SHARED_API = f"https://api.github.com/repos/{SHARED_REPO}/contents/called.json"
 TOKEN_FILE = "token.txt"
 
 
 def resolve_token():
-    """Find a GitHub token for uploading, without one ever being baked in.
+    """Find a GitHub token for uploading.
 
-    Order: env var, a local token.txt, then `gh auth token` if gh is installed.
+    Order: env var, local token.txt, the token embedded at build time (so release
+    users need no setup), then `gh auth token` for developers running from source.
     """
     t = os.environ.get("CCLF_GITHUB_TOKEN")
     if t and t.strip():
@@ -143,6 +162,9 @@ def resolve_token():
                 return s
         except Exception:
             pass
+    embedded = _embedded_token()
+    if embedded:
+        return embedded
     try:
         r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10)
         if r.returncode == 0 and r.stdout.strip():

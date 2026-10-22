@@ -44,6 +44,12 @@ jobs:
         shell: bash
         run: python stamp_version.py "${GITHUB_REF_NAME}"
 
+      - name: Inject shared upload token
+        shell: bash
+        env:
+          SHARED_TOKEN: ${{ secrets.SHARED_TOKEN }}
+        run: python stamp_token.py
+
       - name: Build
         run: pyinstaller --onefile --windowed --name ColdCallLeadFinder app.py
 

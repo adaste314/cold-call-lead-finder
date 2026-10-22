@@ -45,16 +45,29 @@ leads list and saved permanently, so it won't reappear in future searches either
 - **Called (N)** button — opens the list of businesses you've marked called. Select
   any and **Restore to leads** to bring them back, or **Clear all** to wipe the list.
 - **Download / Upload** (inside the Called window) — sync with a team-shared list
-  stored on GitHub (`shared/called.json` in this repo), so people working the same
-  area don't call the same places twice:
-  - **Download** merges the shared list into your local one. Works for anyone, no
-    setup.
+  stored in a separate GitHub repo (`cclf-shared`), so people working the same area
+  don't call the same places twice. **Both work out of the box — no sign-in.**
+  - **Download** merges the shared list into your local one.
   - **Upload** merges your local list *into* the shared one (union — it only ever
-    adds, never clobbers someone else's entries). Writing to GitHub needs a token
-    with repo access, resolved in this order: `CCLF_GITHUB_TOKEN` env var →
-    `~/.cold_call_lead_finder/token.txt` → `gh auth token` (so if you've run
-    `gh auth login`, it just works). Your local list still lives at
-    `~/.cold_call_lead_finder/called.json`.
+    adds, never clobbers someone else's entries).
+  - The downloaded app ships with a scoped upload token (injected at build time;
+    see below), so end users never configure a credential. Developers running from
+    source can instead use `CCLF_GITHUB_TOKEN`, `~/.cold_call_lead_finder/token.txt`,
+    or `gh auth token`. Your local list lives at `~/.cold_call_lead_finder/called.json`.
+
+### Maintainer setup for uploads (one-time)
+
+The shared list is a separate repo (`cclf-shared`) so a leaked upload token can only
+ever touch the list — never this app's code or releases. To enable uploads in the
+released binaries:
+
+1. Create a **fine-grained personal access token** scoped to **only** the
+   `cclf-shared` repo, with **Repository permissions → Contents: Read and write**.
+2. Add it as an **Actions secret** named `SHARED_TOKEN` on the
+   `cold-call-lead-finder` repo (`gh secret set SHARED_TOKEN --repo <owner>/cold-call-lead-finder`).
+
+The build injects it (base64) into the binaries; it never appears in the source.
+If the secret is absent, builds still work — uploads just fall back to a local token.
 
 ## Updating
 
