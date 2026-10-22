@@ -178,7 +178,8 @@ def fetch_shared(token=None):
     """Return (data_dict, sha) for the shared list. ({}, None) if it doesn't exist."""
     import base64
     import requests
-    headers = {"User-Agent": UA, "Accept": "application/vnd.github+json"}
+    headers = {"User-Agent": UA, "Accept": "application/vnd.github+json",
+               "Cache-Control": "no-cache"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     r = requests.get(SHARED_API, headers=headers, params={"ref": "main"}, timeout=20)
@@ -840,17 +841,31 @@ class App(tk.Tk):
         threading.Thread(target=self._upload_worker, args=(token,), daemon=True).start()
 
     def _upload_worker(self, token):
+        import time as _t
+        import requests
         try:
-            remote, sha = fetch_shared(token)
-            before = len(remote)
-            for k, v in self.called.items():          # merge local into remote (union)
-                if k not in remote:
-                    remote[k] = v
-            added_remote = len(remote) - before
-            pulled = self._merge_called(remote)        # and bring any remote-only into local
-            save_called(self.called)
-            push_shared(remote, sha, token)
-            self.q.put(("sync", ("uploaded", (added_remote, pulled))))
+            last_err = None
+            for attempt in range(5):
+                remote, sha = fetch_shared(token)      # re-fetch fresh sha each try
+                before = len(remote)
+                for k, v in self.called.items():        # merge local into remote (union)
+                    if k not in remote:
+                        remote[k] = v
+                added_remote = len(remote) - before
+                pulled = self._merge_called(remote)     # bring any remote-only into local
+                save_called(self.called)
+                try:
+                    push_shared(remote, sha, token)
+                    self.q.put(("sync", ("uploaded", (added_remote, pulled))))
+                    return
+                except requests.HTTPError as e:
+                    code = e.response.status_code if e.response is not None else None
+                    last_err = e
+                    if code in (409, 422) and attempt < 4:   # stale sha - someone else wrote; retry
+                        _t.sleep(0.4 * (attempt + 1))
+                        continue
+                    raise
+            raise last_err
         except Exception as e:
             self.q.put(("sync", ("error", str(e))))
 
