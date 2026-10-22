@@ -510,6 +510,14 @@ class App(tk.Tk):
         self.detail.tag_configure("tier", foreground="#333333")
         split.add(detail_frame, weight=2)
 
+        # small version stamp in the bottom-right corner
+        ver = ttk.Label(self, text=f"v{current_version()}", foreground="#9aa3b2")
+        try:
+            ver.configure(font=("TkDefaultFont", 9))
+        except Exception:
+            pass
+        ver.place(relx=1.0, rely=1.0, anchor="se", x=-8, y=-3)
+
         self._sort_state = {}
 
     def _placeholder(self, entry, text):
