@@ -879,11 +879,23 @@ class App(tk.Tk):
         self._populate()
         self._update_called_btn()
         if status == "downloaded":
-            self._set_status(f"Download complete - merged {info} new into your Called list.")
+            msg = (f"Merged {info} new "
+                   + ("business" if info == 1 else "businesses")
+                   + " into your Called list.") if info else "Your list is already up to date."
+            self._set_status("Download successful - " + msg)
+            messagebox.showinfo("Download successful", msg)
         else:  # uploaded
             added_remote, pulled = info
-            self._set_status(f"Upload complete - added {added_remote} to the shared list"
-                             + (f", pulled {pulled} new to yours." if pulled else "."))
+            parts = [f"Added {added_remote} of your called "
+                     + ("business" if added_remote == 1 else "businesses")
+                     + " to the shared list."]
+            if pulled:
+                parts.append(f"Also pulled {pulled} new into your local list.")
+            if not added_remote:
+                parts = ["The shared list already had all of yours - nothing new to add."]
+            msg = "\n".join(parts)
+            self._set_status("Upload successful - " + msg.replace("\n", " "))
+            messagebox.showinfo("Upload successful", msg)
 
     # -- update --------------------------------------------------------------
     def on_update(self):
